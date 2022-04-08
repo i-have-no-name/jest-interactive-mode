@@ -105,17 +105,20 @@
              (msgs (gethash "failureMessages" assert)))
         (save-excursion
           (goto-char 1)
-          (let ((position (search-forward-regexp (format "test('%s'\\|it('%s'" title title))))
-            (end-of-line)
-            (let ((ov (make-overlay position
-                                    (point)
-                                    nil
-                                    t)))
-              (push ov overlays)
-              (if (string= status "passed")
-                  (jest-interactive--success ov)
-                (jest-interactive--failure ov
-                                           (car msgs))))))))
+          (let ((position (search-forward-regexp (format "test('%s'\\|it('%s'" title title)
+                                                 nil
+                                                 t)))
+            (when position
+              (end-of-line)
+              (let ((ov (make-overlay position
+                                      (point)
+                                      nil
+                                      t)))
+                (push ov overlays)
+                (if (string= status "passed")
+                    (jest-interactive--success ov)
+                  (jest-interactive--failure ov
+                                             (car msgs)))))))))
     (jest-interactive--modeline num_failed_tests)))
 
 (defun jest-interactive--open ()
