@@ -63,7 +63,6 @@
                            '(left-fringe filled-rectangle error)))
   (jest-interactive--expect_message msg))
 
-
 (defun jest-interactive--create-empty-file-if-no-exists (filePath)
   (unless (file-exists-p filePath)
     (with-temp-buffer
@@ -71,6 +70,21 @@
   (write-region "{\"testResults\": [{\"assertionResults\": []}] }"
                 nil filePath))
 
+(defun jest-interactive--modeline (num_failed_tests)
+  (when (and num_failed_tests
+             (boundp 'doom-modeline-mode))
+    (setq global-mode-string jest-interactive--modeline-string)
+    (if (eq num_failed_tests 0)
+        (add-to-list 'global-mode-string
+                     (propertize "jest"
+                                 'face
+                                 '(success 'bold))
+                     'APPEND)
+      (add-to-list 'global-mode-string
+                   (propertize (format "jest(failed:%s)" num_failed_tests)
+                               'face
+                               '(error 'bold))
+                   'APPEND))))
 
 (defun jest-interactive--run ()
   (message "jest-interactive-mode processing")
@@ -78,6 +92,7 @@
          (json-array-type 'list)
          (json-key-type 'string)
          (json (json-read-file jest-interactive--results-file-name))
+         (num_failed_tests (gethash "numFailedTests" json))
          (results (gethash "testResults" json))
          (head (car results))
          (asserts (gethash "assertionResults" head)))
@@ -100,11 +115,14 @@
               (if (string= status "passed")
                   (jest-interactive--success ov)
                 (jest-interactive--failure ov
-                                           (car msgs))))))))))
+                                           (car msgs))))))))
+    (jest-interactive--modeline num_failed_tests)))
 
 (defun jest-interactive--open ()
   (interactive)
   (message "jest-interactive-mode enabled")
+  (set (make-local-variable 'jest-interactive--modeline-string)
+       global-mode-string)
   (set (make-local-variable 'overlays)
        '())
   (set (make-local-variable 'jest-interactive--results-file-name)
@@ -136,6 +154,7 @@
   (delete-file jest-interactive--results-file-name)
   (dolist (ov overlays)
     (delete-overlay ov))
+  (setq global-mode-string jest-interactive--modeline-string)
   (message "jest-interactive-mode disabled"))
 
 (define-minor-mode jest-interactive-mode
