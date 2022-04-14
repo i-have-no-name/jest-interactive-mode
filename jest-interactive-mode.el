@@ -6,26 +6,50 @@
 
 ;;; Commentary:
 
-;; Put a description of the package here
+;; Highlight jest results in window
 
 ;;; Code:
 
 (require 'json)
 (require 'filenotify)
 
-(defun jest-interactive--replace-msg (str)
+(defun jest-interactive--resize-window (new-size &optional horizontal)
+  "Sets the current window's with or height to `new-size'."
+  (let ((wincfg (current-window-configuration))
+        (nwins (length (window-list)))
+        (count (if horizontal
+                   (- new-size
+                      (window-width))
+                 (- new-size
+                    (window-height)))))
+    (catch 'done
+      (save-window-excursion (while (not (zerop count))
+                               (if (> count 0)
+                                   (progn
+                                     (enlarge-window 1 horizontal)
+                                     (setq count (1- count)))
+                                 (progn
+                                   (shrink-window 1 horizontal)
+                                   (setq count (1+ count))))
+                               (if (= nwins (length (window-list)))
+                                   (setq wincfg (current-window-configuration))
+                                 (throw 'done t)))))
+    (set-window-configuration wincfg)))
+
+;; strip unnecessary whitespaces and ansi
+(defun jest-interactive--normalize-error-message (str)
   (replace-regexp-in-string "\s+"
                             " "
                             (replace-regexp-in-string "\x1b\[[0-9;]*m"
                                                       "" str)))
 
-(defun jest-interactive--get_message (msg)
+(defun jest-interactive--get-error-message (msg)
   (let* ((lines (split-string msg "\n"))
-         (expected (jest-interactive--replace-msg (nth 2 lines)))
-         (received (jest-interactive--replace-msg (nth 3 lines))))
+         (expected (jest-interactive--normalize-error-message (nth 2 lines)))
+         (received (jest-interactive--normalize-error-message (nth 3 lines))))
     (concat expected ", " received)))
 
-(defun jest-interactive--expect_message (msg)
+(defun jest-interactive--set-expect-error (msg)
   (save-match-data (and (string-match "\(\\(.+?\\):\\([0-9]+\\):\\([0-9]+\\)\)"
                                       msg)
                         (let* ((line (match-string 2 msg))
@@ -38,7 +62,7 @@
                           (overlay-put ov
                                        'after-string
                                        (propertize (concat " "
-                                                           (jest-interactive--get_message msg))
+                                                           (jest-interactive--get-error-message msg))
                                                    'face
                                                    '(error)))
                           (overlay-put ov
@@ -47,21 +71,20 @@
                                                    'display
                                                    '(left-fringe filled-rectangle error)))))))
 
-
-(defun jest-interactive--success (ov)
+(defun jest-interactive--set-success-suite (ov)
   (overlay-put ov
                'before-string
                (propertize "x"
                            'display
                            '(left-fringe filled-rectangle success))))
 
-(defun jest-interactive--failure (ov msg)
+(defun jest-interactive--set-failure-suite (ov msg)
   (overlay-put ov
                'before-string
                (propertize "x"
                            'display
                            '(left-fringe filled-rectangle error)))
-  (jest-interactive--expect_message msg))
+  (jest-interactive--set-expect-error msg))
 
 (defun jest-interactive--create-empty-file-if-no-exists (filePath)
   (unless (file-exists-p filePath)
@@ -70,24 +93,80 @@
   (write-region "{\"testResults\": [{\"assertionResults\": []}] }"
                 nil filePath))
 
+(defun jest-interactive--line-jump (e)
+  (interactive)
+  (let ((line (get-text-property (point)
+                                 `jest-interactive-error-line)))
+    (pop-to-buffer jest-interactive-main-buffer)
+    (goto-line line)))
+
+(defun jest-interactive--modeline-display-error-window ()
+  (setq jest-interactive-main-buffer (current-buffer))
+  (let ((errors-lm-list errors-line-message-list))
+    (with-current-buffer jest-interactive-errors-buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (dolist (line-message-list errors-lm-list)
+          (let ((line (car line-message-list))
+                (msg (car (cdr line-message-list))))
+            (insert-text-button (propertize (format "line %s: %s" line msg)
+                                            'face
+                                            '(error :underline t))
+                                'action
+                                'jest-interactive--line-jump
+                                'follow-link
+                                "\C-m"
+                                'jest-interactive-error-line
+                                line)
+            (let ((last_line (car (car (last errors-lm-list)))))
+              (unless (eq last_line line)
+                (insert "\n"))))))))
+  ;; open window with errors only if it's not visible
+  (when (and jest-interactive-errors-buffer-opened
+             (not (get-buffer-window jest-interactive-errors-buffer)))
+    (pop-to-buffer jest-interactive-errors-buffer
+                   '(display-buffer-at-bottom . ()))
+    (jest-interactive--resize-window 13)
+    (setq mode-line-format nil)
+    (hl-line-mode)
+    (setq buffer-read-only t)))
+
+(defun jest-interactive--modeline-propertize (text &rest rest)
+  (propertize (concat " "
+                      (apply #'propertize text rest))))
+
 (defun jest-interactive--modeline (num_failed_tests)
   (when (and num_failed_tests
              (boundp 'doom-modeline-mode))
     (setq global-mode-string jest-interactive--modeline-string)
     (if (eq num_failed_tests 0)
         (add-to-list 'global-mode-string
-                     (propertize "jest"
-                                 'face
-                                 '(success 'bold))
+                     (jest-interactive--modeline-propertize "jest"
+                                                            'face
+                                                            '(success 'bold))
                      'APPEND)
       (add-to-list 'global-mode-string
-                   (propertize (format "jest(failed:%s)" num_failed_tests)
-                               'face
-                               '(error 'bold))
+                   (jest-interactive--modeline-propertize (format "jest(failed:%s)" num_failed_tests)
+                                                          'face
+                                                          '(error 'bold)
+                                                          'mouse-face
+                                                          'mode-line-highlight
+                                                          'local-map
+                                                          (make-mode-line-mouse-map 'mouse-1 'jest-interactive-display-list-errors))
                    'APPEND))))
+
+(defun jest-interactive--modeline-init ()
+  (when (boundp 'doom-modeline-mode)
+    (setq global-mode-string jest-interactive--modeline-string)
+    (add-to-list 'global-mode-string
+                 (jest-interactive--modeline-propertize "jest(initializing)"
+                                                        'face
+                                                        '(success 'bold))
+                 'APPEND)))
 
 (defun jest-interactive--run ()
   (message "jest-interactive-mode processing")
+  (setq errors-line-message-list '())
   (let* ((json-object-type 'hash-table)
          (json-array-type 'list)
          (json-key-type 'string)
@@ -116,49 +195,80 @@
                                       t)))
                 (push ov overlays)
                 (if (string= status "passed")
-                    (jest-interactive--success ov)
-                  (jest-interactive--failure ov
-                                             (car msgs)))))))))
-    (jest-interactive--modeline num_failed_tests)))
+                    (jest-interactive--set-success-suite ov)
+                  (progn
+                    (let ((msg (thing-at-point 'line))
+                          (line (line-number-at-pos)))
+                      (add-to-list 'errors-line-message-list
+                                   (list line
+                                         (string-trim msg))
+                                   t))
+                    (jest-interactive--set-failure-suite ov
+                                                         (car msgs))))))))))
+    (jest-interactive--modeline num_failed_tests)
+    (when (and asserts
+               (boundp 'jest-interactive-main-buffer))
+      (jest-interactive--modeline-display-error-window))))
+
+(defun jest-interactive--file-name ()
+  (file-name-nondirectory (buffer-file-name)))
+
+(defun jest-interactive--create-results-file-name ()
+  (concat "."
+          (jest-interactive--file-name)
+          ".results.json"))
 
 (defun jest-interactive--open ()
   (interactive)
   (message "jest-interactive-mode enabled")
-  (set (make-local-variable 'jest-interactive--modeline-string)
-       global-mode-string)
-  (set (make-local-variable 'overlays)
-       '())
-  (set (make-local-variable 'jest-interactive--results-file-name)
-       (concat (file-name-directory buffer-file-name)
-               "__jest_interactive_mode_results__.json"))
+
+  (setq jest-interactive--modeline-string global-mode-string)
+  (setq jest-interactive-errors-buffer-opened
+        nil)
+  (jest-interactive--modeline-init)
+  (setq overlays '())
+  (setq jest-interactive--results-file-name (concat (file-name-directory buffer-file-name)
+                                                    (jest-interactive--create-results-file-name)))
+  (setq jest-interactive-errors-buffer (get-buffer-create "*jest-interactice-errors-buffer*"))
   (jest-interactive--create-empty-file-if-no-exists
    jest-interactive--results-file-name)
-  (set (make-local-variable 'fd)
-       (file-notify-add-watch jest-interactive--results-file-name
-                              '(change)
-                              (lambda (event)
-                                (jest-interactive--run))))
-  (set (make-local-variable 'process)
-       (make-comint-in-buffer "jest-interactive"
-                              nil
-                              "yarn"
-                              nil
-                              "jest"
-                              (buffer-file-name)
-                              "--json"
-                              (format "--outputFile=%s" jest-interactive--results-file-name)
-                              "--watch"))
+  (setq fd (file-notify-add-watch jest-interactive--results-file-name
+                                  '(change)
+                                  (lambda (event)
+                                    (jest-interactive--run))))
+  (setq process (make-comint-in-buffer (concat (jest-interactive--file-name)
+                                               ".jest-process")
+                                       nil
+                                       "yarn"
+                                       nil
+                                       "jest"
+                                       (buffer-file-name)
+                                       "--json"
+                                       (format "--outputFile=%s" jest-interactive--results-file-name)
+                                       "--watch"))
   (jest-interactive--run))
 
 (defun jest-interactive--close ()
+  (file-notify-rm-watch fd)
+  (when (get-buffer-window jest-interactive-errors-buffer)
+    (delete-window (get-buffer-window jest-interactive-errors-buffer)))
+  (kill-buffer jest-interactive-errors-buffer)
   (delete-process process)
   (kill-buffer process)
-  (file-notify-rm-watch fd)
   (delete-file jest-interactive--results-file-name)
   (dolist (ov overlays)
     (delete-overlay ov))
   (setq global-mode-string jest-interactive--modeline-string)
+  (setq jest-interactive-errors-buffer-opened
+        nil)
   (message "jest-interactive-mode disabled"))
+
+(defun jest-interactive-display-list-errors()
+  (interactive)
+  (setq jest-interactive-errors-buffer-opened
+        t)
+  (jest-interactive--modeline-display-error-window)
+)
 
 (define-minor-mode jest-interactive-mode
   "jest interactive mode"
