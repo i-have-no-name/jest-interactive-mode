@@ -19,7 +19,8 @@ emacs jest tool with immediately highlighting results
 
 ## Caveats
 
-It's works for one test for now. After you done with one test file you shoul turn off mode.
+It's works for one test for now. When you finish with test file you should turn off mode and run for another. 
+(fix it in the future)
 
 ## TODO
 TBD
