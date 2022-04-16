@@ -245,6 +245,7 @@
                                        (buffer-file-name)
                                        "--json"
                                        (format "--outputFile=%s" jest-interactive--results-file-name)
+                                       "--runInBand"
                                        "--watch"))
   (jest-interactive--run))
 

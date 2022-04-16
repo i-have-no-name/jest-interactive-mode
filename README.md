@@ -23,4 +23,6 @@ It's works for one test for now. When you finish with test file you should turn 
 (fix it in the future)
 
 ## TODO
-TBD
+* [ ] Display `console.log` 
+* [ ] Loading spinner on initialization and recomputing
+* [ ] Align text in `display-list-errors` 
