@@ -102,14 +102,21 @@
 
 (defun jest-interactive--modeline-display-error-window ()
   (setq jest-interactive-main-buffer (current-buffer))
-  (let ((errors-lm-list errors-line-message-list))
+  (let* ((errors-lm-list errors-line-message-list)
+         (max-line-number (car (car (last errors-lm-list))))
+         (line-string "line %s: ")
+         (line-longest-string (format line-string max-line-number)))
     (with-current-buffer jest-interactive-errors-buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
         (dolist (line-message-list errors-lm-list)
-          (let ((line (car line-message-list))
-                (msg (car (cdr line-message-list))))
-            (insert-text-button (propertize (format "line %s: %s" line msg)
+          (let* ((line (car line-message-list))
+                 (msg (car (cdr line-message-list)))
+                 (line-format-string (format line-string line)))
+            (insert-text-button (propertize (concat (s-pad-right (string-width line-longest-string)
+                                                                 " "
+                                                                 line-format-string)
+                                                    msg)
                                             'face
                                             '(error :underline t))
                                 'action
@@ -126,6 +133,7 @@
              (not (get-buffer-window jest-interactive-errors-buffer)))
     (pop-to-buffer jest-interactive-errors-buffer
                    '(display-buffer-at-bottom . ()))
+    (goto-line 1)
     (jest-interactive--resize-window 13)
     (setq mode-line-format nil)
     (hl-line-mode)
@@ -221,7 +229,6 @@
 (defun jest-interactive--open ()
   (interactive)
   (message "jest-interactive-mode enabled")
-
   (setq jest-interactive--modeline-string global-mode-string)
   (setq jest-interactive-errors-buffer-opened
         nil)
@@ -245,6 +252,7 @@
                                        (buffer-file-name)
                                        "--json"
                                        (format "--outputFile=%s" jest-interactive--results-file-name)
+                                       "--runInBand"
                                        "--watch"))
   (jest-interactive--run))
 
@@ -263,12 +271,11 @@
         nil)
   (message "jest-interactive-mode disabled"))
 
-(defun jest-interactive-display-list-errors()
+(defun jest-interactive-display-list-errors ()
   (interactive)
   (setq jest-interactive-errors-buffer-opened
         t)
-  (jest-interactive--modeline-display-error-window)
-)
+  (jest-interactive--modeline-display-error-window))
 
 (define-minor-mode jest-interactive-mode
   "jest interactive mode"
