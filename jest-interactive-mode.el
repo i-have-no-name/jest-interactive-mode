@@ -192,7 +192,7 @@
              (msgs (gethash "failureMessages" assert)))
         (save-excursion
           (goto-char 1)
-          (let ((position (search-forward-regexp (format "test('%s'\\|it('%s'" title title)
+          (let ((position (search-forward-regexp (format "\\(test(\\(\'\\|\"\\)%s\\)\\|\\(it(\\(\'\\|\"\\)%s\\)" title title)
                                                  nil
                                                  t)))
             (when position
