@@ -25,4 +25,4 @@ It's works for one test for now. When you finish with test file you should turn 
 ## TODO
 * [ ] Display `console.log` 
 * [ ] Loading spinner on initialization and recomputing
-* [ ] Align text in `display-list-errors` 
+* [x] Align text in `display-list-errors` 
