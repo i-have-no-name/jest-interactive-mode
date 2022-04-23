@@ -100,7 +100,11 @@
     (pop-to-buffer jest-interactive-main-buffer)
     (goto-line line)))
 
-(defun jest-interactive--modeline-display-error-window ()
+;; TODO: change opened to function with visible state
+(defun jest-interactive--display-error-window ()
+  (setq jest-interactive-errors-buffer-opened
+        t)
+  (setq jest-interactive-errors-buffer (get-buffer-create "*jest-interactice-errors-buffer*"))
   (setq jest-interactive-main-buffer (current-buffer))
   (let* ((errors-lm-list errors-line-message-list)
          (max-line-number (car (car (last errors-lm-list))))
@@ -109,6 +113,7 @@
     (with-current-buffer jest-interactive-errors-buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
+        (jest-interactive--list-errors-mode)
         (dolist (line-message-list errors-lm-list)
           (let* ((line (car line-message-list))
                  (msg (car (cdr line-message-list)))
@@ -192,7 +197,8 @@
              (msgs (gethash "failureMessages" assert)))
         (save-excursion
           (goto-char 1)
-          (let ((position (search-forward-regexp (format "\\(test(\\(\'\\|\"\\)%s\\)\\|\\(it(\\(\'\\|\"\\)%s\\)" title title)
+          (let ((position (search-forward-regexp (format "\\(test(\\(\'\\|\"\\)%s\\)\\|\\(it(\\(\'\\|\"\\)%s\\)"
+                                                         title title)
                                                  nil
                                                  t)))
             (when position
@@ -215,8 +221,11 @@
                                                          (car msgs))))))))))
     (jest-interactive--modeline num_failed_tests)
     (when (and asserts
+               (boundp 'jest-interactive-errors-buffer)
+               (get-buffer-window jest-interactive-errors-buffer
+                                  'visible)
                (boundp 'jest-interactive-main-buffer))
-      (jest-interactive--modeline-display-error-window))))
+      (jest-interactive--display-error-window))))
 
 (defun jest-interactive--file-name ()
   (file-name-nondirectory (buffer-file-name)))
@@ -225,6 +234,13 @@
   (concat "."
           (jest-interactive--file-name)
           ".results.json"))
+
+(defun jest-interactive--hide-list-errors ()
+  (when (get-buffer-window jest-interactive-errors-buffer)
+    (delete-window (get-buffer-window jest-interactive-errors-buffer))
+    (kill-buffer jest-interactive-errors-buffer))
+  (setq jest-interactive-errors-buffer-opened
+        nil))
 
 (defun jest-interactive--open ()
   (interactive)
@@ -236,7 +252,6 @@
   (setq overlays '())
   (setq jest-interactive--results-file-name (concat (file-name-directory buffer-file-name)
                                                     (jest-interactive--create-results-file-name)))
-  (setq jest-interactive-errors-buffer (get-buffer-create "*jest-interactice-errors-buffer*"))
   (jest-interactive--create-empty-file-if-no-exists
    jest-interactive--results-file-name)
   (setq fd (file-notify-add-watch jest-interactive--results-file-name
@@ -258,31 +273,78 @@
 
 (defun jest-interactive--close ()
   (file-notify-rm-watch fd)
-  (when (get-buffer-window jest-interactive-errors-buffer)
-    (delete-window (get-buffer-window jest-interactive-errors-buffer)))
-  (kill-buffer jest-interactive-errors-buffer)
+  (jest-interactive--hide-list-errors)
   (delete-process process)
   (kill-buffer process)
   (delete-file jest-interactive--results-file-name)
   (dolist (ov overlays)
     (delete-overlay ov))
   (setq global-mode-string jest-interactive--modeline-string)
-  (setq jest-interactive-errors-buffer-opened
-        nil)
   (message "jest-interactive-mode disabled"))
 
 (defun jest-interactive-display-list-errors ()
   (interactive)
-  (setq jest-interactive-errors-buffer-opened
-        t)
-  (jest-interactive--modeline-display-error-window))
+  (jest-interactive--display-error-window))
+
+
+(defvar jest-interactive--keymap ()
+  "jest interactive keymap")
+
+(setq jest-interactive--keymap (make-sparse-keymap))
 
 (define-minor-mode jest-interactive-mode
   "jest interactive mode"
   :ligher "jest-interactive"
+  :keymap jest-interactive--keymap
   (if jest-interactive-mode
       (jest-interactive--open)
     (jest-interactive--close)))
+
+(defvar jest-interactive--list-errors-keymap ()
+  "jest interactive list errors keymap")
+
+(setq jest-interactive--list-errors-keymap (make-sparse-keymap))
+
+(define-minor-mode jest-interactive--list-errors-mode
+  "jest interactive list errors mode"
+  :ligher "jest-interactive-list-errors"
+  :keymap jest-interactive--list-errors-keymap
+  (progn
+    (if jest-interactive--list-errors-mode
+        (jest-interactive--bind-keys)
+      (jest-interactive--unbind-keys))))
+
+(defun jest-interactive--close-list-errors ()
+  (interactive)
+  (jest-interactive--unbind-keys)
+  (jest-interactive--hide-list-errors))
+
+
+(defun jest-interactive--bind-keys ()
+  (when evil-mode
+    (evil-define-key 'normal
+      jest-interactive--keymap
+      [escape]
+      'jest-interactive--close-list-errors)
+    (evil-define-key 'normal
+      jest-interactive--list-errors-keymap
+      [escape]
+      'jest-interactive--close-list-errors)
+    (evil-define-key 'normal jest-interactive--list-errors-keymap
+      "q" 'jest-interactive--close-list-errors)))
+
+(defun jest-interactive--unbind-keys ()
+  (when evil-mode
+    (evil-define-key 'normal
+      jest-interactive--keymap
+      [escape]
+      nil)
+    (evil-define-key 'normal
+      jest-interactive--list-errors-keymap
+      [escape]
+      nil)
+    (evil-define-key 'normal jest-interactive--list-errors-keymap
+      "q" nil)))
 
 
 (provide 'jest-interactive-mode)
