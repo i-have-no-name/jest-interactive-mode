@@ -236,16 +236,19 @@
           ".results.json"))
 
 (defun jest-interactive--hide-list-errors ()
-  (when (get-buffer-window jest-interactive-errors-buffer)
+  (when (and jest-interactive-errors-buffer
+             (get-buffer-window jest-interactive-errors-buffer))
     (delete-window (get-buffer-window jest-interactive-errors-buffer))
     (kill-buffer jest-interactive-errors-buffer))
   (setq jest-interactive-errors-buffer-opened
-        nil))
+        nil)
+  (setq jest-interactive-errors-buffer nil))
 
 (defun jest-interactive--open ()
   (interactive)
   (message "jest-interactive-mode enabled")
   (setq jest-interactive--modeline-string global-mode-string)
+  (setq jest-interactive-errors-buffer nil)
   (setq jest-interactive-errors-buffer-opened
         nil)
   (jest-interactive--modeline-init)
@@ -345,7 +348,6 @@
       nil)
     (evil-define-key 'normal jest-interactive--list-errors-keymap
       "q" nil)))
-
 
 (provide 'jest-interactive-mode)
 
